@@ -190,6 +190,10 @@ enum SnapshotDriver {
             capture(dir, "new-vm")
             lib.showNewVM = false
             lib.tab = .console
+            vm.notice = "Sent the power-button signal. Windows may take a moment (or ask) before shutting down."
+            try? await Task.sleep(for: .seconds(1))
+            capture(dir, "console-notice")
+            vm.notice = nil
             vm.start()
             try? await Task.sleep(for: .seconds(9))
             capture(dir, "console-running")

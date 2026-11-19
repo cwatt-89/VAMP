@@ -57,25 +57,33 @@ struct VMDetail: View {
         }
         if let n = vm.notice {
             Banner(text: n, color: FN.accent) { vm.notice = nil }
+                .task(id: n) {
+                    // Notices are informational: fade them out on their own.
+                    try? await Task.sleep(for: .seconds(6))
+                    if vm.notice == n { withAnimation { vm.notice = nil } }
+                }
         }
     }
 }
 
+/// Slim strip under the tabs: one line for notices, up to a few for errors (full text selectable).
 struct Banner: View {
     let text: String
     let color: Color
     let dismiss: () -> Void
     var body: some View {
-        HStack(alignment: .top) {
-            Rectangle().fill(color).frame(width: 3)
-            Text(text).fnData().textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Spacer()
+        HStack(alignment: .center, spacing: FN.s2) {
+            Text(text).fnData().textSelection(.enabled).lineLimit(4).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: dismiss) { Image(systemName: "xmark") }.buttonStyle(.fnGhost)
         }
-        .padding(FN.s2)
+        .padding(.vertical, 6).padding(.horizontal, FN.s2)
+        .overlay(alignment: .leading) { Rectangle().fill(color).frame(width: 3) }
         .background(FN.surface)
         .fnBorder()
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, FN.s5).padding(.bottom, FN.s3)
+        .transition(.opacity)
     }
 }
 
