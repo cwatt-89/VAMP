@@ -145,11 +145,29 @@ final class VM: Identifiable {
         let started = Date()
         Task {
             while Date().timeIntervalSince(started) < 25, state.isOn {
+                // Stop the moment Setup's colored screen shows: stray Enters there open links or cancel Setup.
+                if let f = lastFrame, VM.colorfulFraction(f) > 0.3 { break }
                 vnc?.key(qnum: 0x1C, down: true)
                 vnc?.key(qnum: 0x1C, down: false)
                 try? await Task.sleep(for: .milliseconds(400))
             }
         }
+    }
+
+    /// Share of sampled pixels that are clearly not black/grey text (boot prompts are white-on-black).
+    nonisolated static func colorfulFraction(_ img: CGImage) -> Double {
+        let w = 64, h = 48
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return 0 }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var n = 0
+        for i in stride(from: 0, to: px.count, by: 4) {
+            let r = Int(px[i]), g = Int(px[i + 1]), b = Int(px[i + 2])
+            if max(r, g, b) - min(r, g, b) > 40 { n += 1 }
+        }
+        return Double(n) / Double(w * h)
     }
 
     /// Reconnects to a QEMU left running by a previous VAMP session ("Keep Running" on quit).

@@ -6,6 +6,9 @@ final class Library {
     var vms: [VM] = []
     var selection: UUID?
     var tab: DetailTab = .overview
+    var sidebarHidden = UserDefaults.standard.bool(forKey: "sidebarHidden") {
+        didSet { UserDefaults.standard.set(sidebarHidden, forKey: "sidebarHidden") }
+    }
     var showNewVM = false
     var confirmDelete: VM?
     var tools = QEMUTools.locate()

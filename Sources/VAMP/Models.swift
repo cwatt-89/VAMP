@@ -21,7 +21,7 @@ enum GuestOS: String, Codable, CaseIterable {
 
 enum DisplayDevice: String, Codable, CaseIterable {
     case ramfb, virtioGPU
-    var title: String { self == .ramfb ? "Framebuffer (ramfb)" : "virtio-gpu" }
+    var title: String { self == .ramfb ? "Basic 4:3 (ramfb)" : "Widescreen (virtio-gpu)" }
 }
 
 enum NICModel: String, Codable, CaseIterable {

@@ -9,7 +9,8 @@ struct VMDetail: View {
         @Bindable var lib = lib
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding(.horizontal, FN.s5).padding(.top, 34).padding(.bottom, FN.s3)
+                .padding(.horizontal, FN.s5).padding(.top, compact ? (lib.sidebarHidden ? 30 : 16) : 34)
+                .padding(.bottom, compact ? FN.s2 : FN.s3)
             HStack {
                 FNSegmented(selection: $lib.tab, items: DetailTab.allCases.map { ($0, $0.title) })
                 Spacer()
@@ -18,7 +19,7 @@ struct VMDetail: View {
                     Text(b).fnCaption(FN.fg)
                 }
             }
-            .padding(.horizontal, FN.s5).padding(.bottom, FN.s3)
+            .padding(.horizontal, FN.s5).padding(.bottom, compact ? FN.s2 : FN.s3)
             banners
             FNRule()
             Group {
@@ -35,8 +36,35 @@ struct VMDetail: View {
         .background(FN.bg)
     }
 
-    private var header: some View {
+    /// The console gets the room: one-line header instead of the big stretched title.
+    private var compact: Bool { lib.tab == .console }
+
+    private var sidebarToggle: some View {
+        Button { withAnimation(.easeOut(duration: 0.15)) { lib.sidebarHidden.toggle() } } label: {
+            Image(systemName: "sidebar.left")
+        }
+        .buttonStyle(.fnGhost)
+        .help(lib.sidebarHidden ? "Show library (⌃⌘L)" : "Hide library (⌃⌘L)")
+    }
+
+    @ViewBuilder private var header: some View {
+        if compact {
+            HStack(spacing: FN.s2) {
+                sidebarToggle
+                Stretched(text: vm.config.name, size: 20, scale: 1.35)
+                FNPill(text: vm.state.title, state: vm.state.pill)
+                Text("\(vm.config.cpus) vCPU · \(Fmt.mem(vm.config.memoryMB))").fnCaption().lineLimit(1)
+                Spacer(minLength: FN.s2)
+                PowerControls(vm: vm)
+            }
+        } else {
+            fullHeader
+        }
+    }
+
+    private var fullHeader: some View {
         HStack(alignment: .bottom, spacing: FN.s3) {
+            sidebarToggle
             VStack(alignment: .leading, spacing: 6) {
                 Stretched(text: vm.config.name, size: 30, scale: 1.45)
                 HStack(spacing: FN.s1) {

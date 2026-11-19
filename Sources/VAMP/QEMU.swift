@@ -80,12 +80,12 @@ enum QEMUCommand {
 
         switch c.display {
         case .ramfb: a += ["-device", "ramfb"]
-        case .virtioGPU: a += ["-device", "virtio-gpu-pci"]
+        case .virtioGPU: a += ["-device", "virtio-gpu-pci,xres=1920,yres=1080"] // widescreen; Windows needs viogpudo (virtio-win)
         }
 
         // System disk on NVMe: Windows ships an inbox NVMe driver, so setup sees it without extra drivers.
         a += ["-drive", "if=none,id=hd0,file=\(esc(p.disk.path)),format=qcow2,discard=unmap,detect-zeroes=unmap",
-              "-device", "nvme,drive=hd0,serial=FLOYDVM0,bootindex=1"] // serial kept from FloydVM so existing Windows installs see the same disk
+              "-device", "nvme,drive=hd0,serial=FLOYDVM0,bootindex=0"] // serial kept from FloydVM so existing Windows installs see the same disk
 
         // Two USB CD drives (installer + drivers). Explicit usb-bot + scsi-cd gives each a stable id
         // ("cdrom0"/"cdrom1") for live media changes over QMP.
@@ -96,7 +96,7 @@ enum QEMUCommand {
             if let iso, !iso.isEmpty { drive += ",file=\(esc(iso)),format=raw" }
             // USB, not SATA: the ARM UEFI firmware has no AHCI driver, so it can't boot a SATA CD.
             a += ["-drive", drive, "-device", "usb-bot,id=usbcd\(i)",
-                  "-device", "scsi-cd,bus=usbcd\(i).0,drive=cd\(i),id=cdrom\(i)" + (i == 0 ? ",bootindex=0" : "")]
+                  "-device", "scsi-cd,bus=usbcd\(i).0,drive=cd\(i),id=cdrom\(i)" + (i == 0 ? ",bootindex=1" : "")] // disk first: an empty disk falls through to the installer, an installed one never waits on the CD
         }
 
         switch c.network {

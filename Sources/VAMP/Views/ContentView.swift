@@ -7,8 +7,10 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
-                Sidebar().frame(width: 290)
-                FNRule(vertical: true)
+                if !lib.sidebarHidden {
+                    Sidebar().frame(width: 290)
+                    FNRule(vertical: true)
+                }
                 if let vm = lib.selected {
                     VMDetail(vm: vm)
                 } else {

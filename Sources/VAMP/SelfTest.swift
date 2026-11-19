@@ -197,6 +197,10 @@ enum SnapshotDriver {
             vm.start()
             try? await Task.sleep(for: .seconds(9))
             capture(dir, "console-running")
+            lib.sidebarHidden = true
+            try? await Task.sleep(for: .seconds(1))
+            capture(dir, "console-nosidebar")
+            lib.sidebarHidden = false
             lib.tab = .overview
             try? await Task.sleep(for: .seconds(2.5))
             capture(dir, "overview-running")

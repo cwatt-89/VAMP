@@ -134,6 +134,9 @@ struct VAMPCommands: Commands {
             Button("Clone") { if let vm { lib.clone(vm) } }.disabled(vm == nil || vm?.state.isOn == true)
         }
         CommandGroup(after: .sidebar) {
+            Button(lib.sidebarHidden ? "Show Library" : "Hide Library") { lib.sidebarHidden.toggle() }
+                .keyboardShortcut("l", modifiers: [.command, .control])
+            Divider()
             ForEach(Array(DetailTab.allCases.enumerated()), id: \.offset) { i, t in
                 Button(t.title) { lib.tab = t }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
             }
