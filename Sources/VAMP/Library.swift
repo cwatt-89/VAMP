@@ -84,7 +84,7 @@ final class Library {
         cfg.autoInstallUser = username
         if let d = drivers.available { cfg.driversISOPath = d } else { cfg.driversPending = fetchDrivers }
         let vm = try await create(cfg, diskGB: diskGB)
-        let account = Unattend.Account(username: username, password: password, computerName: Unattend.computerName(from: name))
+        let account = Unattend.Account(username: username, password: password, computerName: Unattend.computerName(from: name, username: username))
         do {
             vm.config.setupISOPath = try await Unattend.buildISO(account: account, into: vm.paths.bundle)
         } catch {

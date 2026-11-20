@@ -16,10 +16,14 @@ enum Unattend {
     }
 
     /// NetBIOS rules: 1–15 chars, letters/digits/hyphen, not all digits.
-    static func computerName(from vmName: String) -> String {
+    /// NetBIOS-safe computer name. It must differ from the account name: when they match, Windows
+    /// resolves the account to the machine itself, so it never joins Administrators and the
+    /// first-logon setup (RDP, drivers, power settings) silently doesn't run.
+    static func computerName(from vmName: String, username: String = "") -> String {
         let cleaned = vmName.uppercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" }
         var s = String(String.UnicodeScalarView(cleaned)).prefix(15)
         if s.isEmpty || s.allSatisfy(\.isNumber) { s = "VAMP" }
+        if String(s).caseInsensitiveCompare(username) == .orderedSame { s = s.prefix(12) + "-PC" }
         return String(s)
     }
 

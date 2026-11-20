@@ -92,7 +92,8 @@ enum SelfTest {
         check("clone", lib.vms.count == 2 && lib.vms[1].config.rdpForward?.hostPort != vm.config.rdpForward?.hostPort)
 
         // Unattended setup disc.
-        check("computer name", Unattend.computerName(from: "My Windows 11!") == "MYWINDOWS11" && Unattend.computerName(from: "123") == "VAMP")
+        check("computer name", Unattend.computerName(from: "My Windows 11!") == "MYWINDOWS11" && Unattend.computerName(from: "123") == "VAMP"
+              && Unattend.computerName(from: "Trial", username: "trial") == "TRIAL-PC")
         let xml = Unattend.xml(.init(username: "carter", password: "p<&>\"w", computerName: "TEST"))
         check("answer file is valid XML", (try? XMLDocument(xmlString: xml)) != nil)
         check("answer file bypasses checks", xml.contains("BypassTPMCheck") && xml.contains("BypassSecureBootCheck") && xml.contains("arm64"))
@@ -144,6 +145,11 @@ enum SelfTest {
                 }
                 print("t+\(n * 30)s state=\(vm.state.title) err=\(vm.lastError ?? "-")")
                 if !vm.state.isOn { break }
+            }
+            if ProcessInfo.processInfo.environment["VAMP_TRIAL_KEEP"] != nil {
+                // Leave the guest running for inspection (--guest-script against this socket).
+                print("kept running: vnc=\(vm.paths.vncSock) qmp=\(vm.paths.qmpSock)")
+                return
             }
             vm.forceOff()
             try? await Task.sleep(for: .seconds(4))
