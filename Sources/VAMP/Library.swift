@@ -6,6 +6,40 @@ final class Library {
     var vms: [VM] = []
     var selection: UUID?
     var tab: DetailTab = .overview
+    var consoleMode: ConsoleMode = .docked
+    /// Where to return when full screen ends (docked or expanded).
+    var modeBeforeFullScreen: ConsoleMode = .docked
+
+    /// Expanded ⇄ docked (or out of full screen back to expanded).
+    func toggleExpanded() {
+        switch consoleMode {
+        case .docked: tab = .console; consoleMode = .expanded
+        case .expanded: consoleMode = .docked
+        case .fullScreen: modeBeforeFullScreen = .expanded; Library.mainWindow?.toggleFullScreen(nil)
+        }
+    }
+
+    /// Edge-to-edge console in macOS full screen; leaving full screen restores the previous layout.
+    func toggleConsoleFullScreen() {
+        guard let w = Library.mainWindow else { return }
+        if consoleMode == .fullScreen {
+            if w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil) } else { consoleMode = modeBeforeFullScreen }
+        } else {
+            modeBeforeFullScreen = consoleMode
+            tab = .console
+            consoleMode = .fullScreen
+            if !w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil) }
+        }
+    }
+
+    /// Called when the window leaves full screen by any route (button, Esc-less menu, green button).
+    func windowExitedFullScreen() {
+        if consoleMode == .fullScreen { consoleMode = modeBeforeFullScreen }
+    }
+
+    static var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true } ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
     var sidebarHidden = UserDefaults.standard.bool(forKey: "sidebarHidden") {
         didSet { UserDefaults.standard.set(sidebarHidden, forKey: "sidebarHidden") }
     }

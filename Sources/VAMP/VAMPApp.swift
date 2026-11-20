@@ -98,11 +98,6 @@ struct VAMPApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands { VAMPCommands(lib: lib) }
 
-        WindowGroup("Console", id: "console", for: UUID.self) { $id in
-            ConsoleWindow(id: id).environment(lib)
-        }
-        .defaultSize(width: 1280, height: 860)
-
         Settings {
             PreferencesView().environment(lib)
         }
@@ -136,6 +131,10 @@ struct VAMPCommands: Commands {
         CommandGroup(after: .sidebar) {
             Button(lib.sidebarHidden ? "Show Library" : "Hide Library") { lib.sidebarHidden.toggle() }
                 .keyboardShortcut("l", modifiers: [.command, .control])
+            Button(lib.consoleMode == .docked ? "Expand Console" : "Exit Expanded Console") { lib.toggleExpanded() }
+                .keyboardShortcut("e", modifiers: [.command, .control]).disabled(lib.selected == nil)
+            Button(lib.consoleMode == .fullScreen ? "Exit Full Screen Console" : "Full Screen Console") { lib.toggleConsoleFullScreen() }
+                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(lib.selected == nil)
             Divider()
             ForEach(Array(DetailTab.allCases.enumerated()), id: \.offset) { i, t in
                 Button(t.title) { lib.tab = t }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)

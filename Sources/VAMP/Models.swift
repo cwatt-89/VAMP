@@ -150,6 +150,9 @@ struct SnapshotInfo: Identifiable, Hashable {
     var vmStateSize: Int64
 }
 
+/// How much of the window the console takes. All one window: no separate pop-out.
+enum ConsoleMode { case docked, expanded, fullScreen }
+
 enum DetailTab: String, CaseIterable {
     case console, overview, hardware, snapshots, log
     var title: String { rawValue.capitalized }

@@ -198,40 +198,103 @@ struct ConsoleSurface: NSViewRepresentable {
     }
 }
 
-/// Console plus its toolbar; used in the detail tab and the pop-out window.
+enum ConsoleChrome { case docked, expanded, fullScreen }
+
+/// Console plus its controls. Docked in the Console tab; expanded to fill the window; or full screen,
+/// edge to edge, with the controls in a bar that slides down when the pointer reaches the top edge.
 struct ConsolePane: View {
     @Environment(Library.self) private var lib
     let vm: VM
-    var showPopOut = true
+    var chrome: ConsoleChrome = .docked
     @State private var captured = false
-    @Environment(\.openWindow) private var openWindow
+    @State private var barVisible = true
+    @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            FNRule()
-            ZStack {
-                if vm.state.isOn {
-                    ConsoleSurface(vm: vm, captured: $captured)
-                    if vm.state == .paused || vm.state == .suspending || vm.busy != nil {
-                        overlayCard(vm.busy ?? vm.state.title, detail: vm.state == .paused ? "Resume to keep working." : nil)
+        switch chrome {
+        case .docked:
+            VStack(spacing: 0) {
+                dockedToolbar
+                FNRule()
+                screen
+                FNRule()
+                statusBar
+            }
+        case .expanded:
+            VStack(spacing: 0) {
+                modeBar.padding(.leading, 64) // clear the window's traffic lights
+                FNRule()
+                screen
+                FNRule()
+                statusBar
+            }
+        case .fullScreen:
+            ZStack(alignment: .top) {
+                screen.ignoresSafeArea()
+                // Thin hot zone along the top edge brings the bar back.
+                Color.clear.frame(height: 6).frame(maxWidth: .infinity).contentShape(Rectangle())
+                    .onHover { if $0 { showBar() } }
+                if barVisible {
+                    VStack(spacing: 0) {
+                        modeBar
+                        FNRule()
+                        statusBar
                     }
-                } else {
-                    offScreen
+                    .background(FN.bg.opacity(0.94))
+                    .onHover { inside in inside ? showBar(autoHide: false) : scheduleHide() }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(FN.bg)
-            FNRule()
-            statusBar
+            .background(Color.black)
+            .onAppear { showBar() }
         }
     }
 
-    private var toolbar: some View {
+    private var screen: some View {
+        ZStack {
+            if vm.state.isOn {
+                ConsoleSurface(vm: vm, captured: $captured)
+                if vm.state == .paused || vm.state == .suspending || vm.busy != nil {
+                    overlayCard(vm.busy ?? vm.state.title, detail: vm.state == .paused ? "Resume to keep working." : nil)
+                }
+            } else {
+                offScreen
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(chrome == .fullScreen ? Color.black : FN.bg)
+    }
+
+    // MARK: Bars
+
+    private var dockedToolbar: some View {
         HStack(spacing: FN.s1) {
             MediaMenu(vm: vm, slot: 0)
             MediaMenu(vm: vm, slot: 1)
             Spacer()
+            guestActions
+            modeButtons
+        }
+        .padding(.horizontal, FN.s3).padding(.vertical, FN.s1)
+    }
+
+    /// One row for expanded and full screen: identity, discs, guest actions, power, layout.
+    private var modeBar: some View {
+        HStack(spacing: FN.s1) {
+            Stretched(text: vm.config.name, size: 17, scale: 1.3)
+            FNPill(text: vm.state.title, state: vm.state.pill).padding(.trailing, FN.s1)
+            MediaMenu(vm: vm, slot: 0)
+            MediaMenu(vm: vm, slot: 1)
+            Spacer(minLength: FN.s2)
+            guestActions
+            PowerMenu(vm: vm)
+            modeButtons
+        }
+        .padding(.horizontal, FN.s3).padding(.vertical, FN.s1)
+    }
+
+    private var guestActions: some View {
+        HStack(spacing: FN.s1) {
             Button { vm.sendCtrlAltDel() } label: { Label("Ctrl-Alt-Del", systemImage: "command") }
                 .buttonStyle(.fn(.secondary, compact: true))
             Button {
@@ -243,31 +306,66 @@ struct ConsolePane: View {
                 if let url = vm.screenshot() { vm.notice = "Saved \(url.lastPathComponent) to the Desktop." }
             } label: { Label("Screenshot", systemImage: "camera") }
                 .buttonStyle(.fn(.secondary, compact: true))
-            if showPopOut {
-                Button { openWindow(id: "console", value: vm.id) } label: { Label("Pop Out", systemImage: "rectangle.on.rectangle") }
-                    .buttonStyle(.fn(.secondary, compact: true))
-            }
-            Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: { Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") }
-                .buttonStyle(.fn(.secondary, compact: true))
         }
         .disabled(!vm.state.isOn)
-        .padding(.horizontal, FN.s3).padding(.vertical, FN.s1)
+    }
+
+    private var modeButtons: some View {
+        HStack(spacing: FN.s1) {
+            if chrome != .fullScreen {
+                Button { withAnimation(.easeOut(duration: 0.18)) { lib.toggleExpanded() } } label: {
+                    Label(chrome == .expanded ? "Collapse" : "Expand",
+                          systemImage: chrome == .expanded ? "arrow.down.right.and.arrow.up.left" : "rectangle.expand.vertical")
+                }
+                .buttonStyle(.fn(.secondary, compact: true))
+                .help(chrome == .expanded ? "Back to the library and tabs (⌃⌘E)" : "Fill the window with the console (⌃⌘E)")
+            }
+            Button { lib.toggleConsoleFullScreen() } label: {
+                Label(chrome == .fullScreen ? "Exit Full Screen" : "Full Screen",
+                      systemImage: chrome == .fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.fn(chrome == .fullScreen ? .primary : .secondary, compact: true))
+            .help(chrome == .fullScreen ? "Leave full screen (⇧⌘F)" : "Edge-to-edge console; move the pointer to the top edge for controls (⇧⌘F)")
+        }
     }
 
     private var statusBar: some View {
         HStack(spacing: FN.s3) {
             Circle().fill(captured ? FN.accent : FN.hair).frame(width: 7, height: 7)
             Text(captured ? "Input captured · press ⌃⌥ to release" : "Click the screen to capture keyboard input").fnCaption(captured ? FN.fg : FN.muted)
+            if chrome == .fullScreen {
+                Text("· pointer to the top edge shows this bar").fnCaption()
+            }
             Spacer()
             if vm.config.driversPending, let p = lib.drivers.progress {
                 Text(String(format: "Downloading drivers %.0f%%", p * 100)).fnCaption()
                 FNBar(fraction: p).frame(width: 100)
             }
+            if let n = vm.notice { Text(n).fnCaption(FN.accent).lineLimit(1) }
             if vm.fbSize.width > 0 { Text("\(Int(vm.fbSize.width))×\(Int(vm.fbSize.height))").fnCaption() }
             Text(vm.state.title).fnLabel(vm.state == .running ? FN.accent : FN.muted)
         }
         .padding(.horizontal, FN.s3).padding(.vertical, 6)
     }
+
+    // MARK: Full-screen bar timing
+
+    private func showBar(autoHide: Bool = true) {
+        hideTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) { barVisible = true }
+        if autoHide { scheduleHide() }
+    }
+
+    private func scheduleHide() {
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled, chrome == .fullScreen else { return }
+            withAnimation(.easeIn(duration: 0.2)) { barVisible = false }
+        }
+    }
+
+    // MARK: Placeholders
 
     private var offScreen: some View {
         ZStack {
@@ -291,6 +389,44 @@ struct ConsolePane: View {
         .padding(FN.s4)
         .background(FN.surface)
         .fnBorder(FN.hair)
+    }
+}
+
+/// Power actions folded into one menu so the expanded/full-screen bar stays a single row.
+struct PowerMenu: View {
+    let vm: VM
+
+    var body: some View {
+        Menu {
+            switch vm.state {
+            case .stopped:
+                Button(vm.config.suspended ? "Resume" : "Start") { vm.start() }
+            case .running:
+                Button("Pause") { vm.pause() }
+                Button("Suspend") { Task { await vm.suspend() } }
+                Button("Restart") { vm.reset() }
+                Button("Shut Down") { vm.shutdown() }
+                Divider()
+                Button("Force Off", role: .destructive) { vm.forceOff() }
+            case .paused:
+                Button("Resume") { vm.resume() }
+                Button("Suspend") { Task { await vm.suspend() } }
+                Divider()
+                Button("Force Off", role: .destructive) { vm.forceOff() }
+            default:
+                Button("Force Off", role: .destructive) { vm.forceOff() }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "power").font(.system(size: 10, weight: .semibold))
+                Text("POWER").font(FN.mono(11, .semibold)).tracking(0.6)
+            }
+            .foregroundStyle(FN.fg)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .overlay(Rectangle().strokeBorder(FN.hair, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 }
 
@@ -329,24 +465,4 @@ func pickISO() -> String? {
     p.canChooseDirectories = false
     p.message = "Choose a disc image (.iso)"
     return p.runModal() == .OK ? p.url?.path : nil
-}
-
-/// Pop-out console window.
-struct ConsoleWindow: View {
-    let id: UUID?
-    @Environment(Library.self) private var lib
-
-    var body: some View {
-        Group {
-            if let vm = lib.vms.first(where: { $0.id == id }) {
-                ConsolePane(vm: vm, showPopOut: false)
-                    .navigationTitle(vm.config.name)
-            } else {
-                Text("VM not found").fnCaption()
-            }
-        }
-        .frame(minWidth: 640, minHeight: 480)
-        .background(FN.bg)
-        .preferredColorScheme(.dark)
-    }
 }

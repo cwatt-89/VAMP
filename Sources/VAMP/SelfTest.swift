@@ -207,6 +207,15 @@ enum SnapshotDriver {
             try? await Task.sleep(for: .seconds(1))
             capture(dir, "console-nosidebar")
             lib.sidebarHidden = false
+            lib.consoleMode = .expanded
+            try? await Task.sleep(for: .seconds(1))
+            capture(dir, "console-expanded")
+            lib.consoleMode = .fullScreen // layout only; the snapshot window stays windowed
+            try? await Task.sleep(for: .seconds(1))
+            capture(dir, "console-fullscreen-bar")
+            try? await Task.sleep(for: .seconds(3.5))
+            capture(dir, "console-fullscreen-clean")
+            lib.consoleMode = .docked
             lib.tab = .overview
             try? await Task.sleep(for: .seconds(2.5))
             capture(dir, "overview-running")

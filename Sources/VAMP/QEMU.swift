@@ -58,6 +58,8 @@ struct VMPaths {
         return URL(fileURLWithPath: "/tmp/vamp-" + short)
     }
     var qmpSock: String { run.appendingPathComponent("qmp.sock").path }
+    /// Second QMP socket for scripts (scripts/sandbox.sh), so they never fight the app for qmp.sock.
+    var ctlSock: String { run.appendingPathComponent("ctl.sock").path }
     var vncSock: String { run.appendingPathComponent("vnc.sock").path }
     var tpmSock: String { run.appendingPathComponent("tpm.sock").path }
     var pidFile: String { run.appendingPathComponent("qemu.pid").path }
@@ -119,7 +121,7 @@ enum QEMUCommand {
         if c.os != .windows11 { a += ["-device", "virtio-rng-pci"] }
         a += ["-rtc", c.os == .windows11 ? "base=localtime" : "base=utc"]
 
-        a += ["-qmp", "unix:\(p.qmpSock),server=on,wait=off", "-vnc", "unix:\(p.vncSock)",
+        a += ["-qmp", "unix:\(p.qmpSock),server=on,wait=off", "-qmp", "unix:\(p.ctlSock),server=on,wait=off", "-vnc", "unix:\(p.vncSock)",
               "-display", "none", "-monitor", "none", "-serial", "none", "-pidfile", p.pidFile]
         if let loadVM { a += ["-loadvm", loadVM] }
         a += c.extraArgs.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)

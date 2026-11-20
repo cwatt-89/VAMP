@@ -6,6 +6,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            if lib.consoleMode != .docked, let vm = lib.selected {
+                ConsolePane(vm: vm, chrome: lib.consoleMode == .fullScreen ? .fullScreen : .expanded)
+            } else {
             HStack(spacing: 0) {
                 if !lib.sidebarHidden {
                     Sidebar().frame(width: 290)
@@ -17,11 +20,16 @@ struct ContentView: View {
                     EmptyLibrary()
                 }
             }
+            }
             if lib.showNewVM { NewVMModal() }
             if let vm = lib.confirmDelete { DeleteModal(vm: vm) }
         }
         .background(FN.bg)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            lib.windowExitedFullScreen()
+        }
+        .onChange(of: lib.selection) { if lib.selected == nil { lib.consoleMode = .docked } }
     }
 }
 
