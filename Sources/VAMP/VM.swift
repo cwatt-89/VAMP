@@ -87,6 +87,7 @@ final class VM: Identifiable {
 
     private func launch(loadVM: String?) async throws {
         let t = tools
+        var cd2Changed = false
         guard let qemu = t.qemu, t.ready else { throw FVError("QEMU isn't installed. Run: brew install qemu swtpm") }
         let fm = FileManager.default
         if config.os == .windows11 {
@@ -96,7 +97,7 @@ final class VM: Identifiable {
             config.driversPending = false
             let cd2 = config.driversISOPath
             if cd2 == nil || !fm.fileExists(atPath: cd2!) || DriverDisc.isManaged(cd2!) {
-                if let disc = try? await DriverDisc.ensure(), disc != cd2 { config.driversISOPath = disc }
+                if let disc = try? await DriverDisc.ensure(), disc != cd2 { config.driversISOPath = disc; cd2Changed = true }
             }
         }
         try? fm.removeItem(at: paths.run)
@@ -156,6 +157,16 @@ final class VM: Identifiable {
         await connectVNC()
         connectGuestChannel()
         startStats()
+        if restore != nil && cd2Changed {
+            // A resumed Windows still has the old disc cached and never re-reads it; a brief virtual
+            // eject + reinsert makes it pick up the new CD 2 (e.g. a VAMP Tools update).
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                _ = try? await q.execute("blockdev-open-tray", ["id": "cdrom1", "force": true])
+                try? await Task.sleep(for: .seconds(3))
+                _ = try? await q.execute("blockdev-close-tray", ["id": "cdrom1"])
+            }
+        }
         if config.autoBootCD {
             config.autoBootCD = false
             pressThroughBootPrompt()
