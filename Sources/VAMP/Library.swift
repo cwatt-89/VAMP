@@ -46,7 +46,6 @@ final class Library {
     var showNewVM = false
     var confirmDelete: VM?
     var tools = QEMUTools.locate()
-    let drivers = DriverStore()
 
     /// VAMP_ROOT overrides the storage root (self-test and snapshot runs).
     static var root: URL {
@@ -92,39 +91,28 @@ final class Library {
         vms = out.sorted { $0.config.created < $1.config.created }
         if selection == nil { selection = vms.first?.id }
         for vm in vms { Task { await vm.refreshDisk() } }
-        if vms.contains(where: { $0.config.driversPending }) { attachDriversWhenReady() }
     }
 
-    /// Downloads virtio-win in the background and hands it to every VM waiting for it (live if running).
-    func attachDriversWhenReady() {
-        Task {
-            guard let path = await drivers.ensure() else { return }
-            for vm in vms where vm.config.driversPending {
-                vm.config.driversPending = false
-                vm.setMedia(slot: 1, path: path)
-            }
-        }
-    }
-
-    /// Zero-touch Windows 11 ARM: answer-file CD + drivers + first-boot key presses, then starts the VM.
+    /// Zero-touch Windows 11 ARM: answer-file CD + built-in driver disc + first-boot key presses.
     @discardableResult
     func createWindowsAutomatic(name: String, cpus: Int, memoryMB: Int, diskGB: Int, iso: String,
-                                username: String, password: String, fetchDrivers: Bool = true) async throws -> VM {
+                                username: String, password: String) async throws -> VM {
         var cfg = VMConfig(name: name, os: .windows11)
         cfg.cpus = cpus
         cfg.memoryMB = memoryMB
         cfg.isoPath = iso
         cfg.autoBootCD = true
         cfg.autoInstallUser = username
-        if let d = drivers.available { cfg.driversISOPath = d } else { cfg.driversPending = fetchDrivers }
+        cfg.driversISOPath = try await DriverDisc.ensure() // Setup installs these itself: network on first boot
         let vm = try await create(cfg, diskGB: diskGB)
-        let account = Unattend.Account(username: username, password: password, computerName: Unattend.computerName(from: name, username: username))
+        let account = Unattend.Account(username: username, password: password,
+                                       computerName: Unattend.computerName(from: name, username: username),
+                                       timeZone: WindowsTimeZone.current())
         do {
             vm.config.setupISOPath = try await Unattend.buildISO(account: account, into: vm.paths.bundle)
         } catch {
             vm.lastError = "Couldn't build the automatic setup disc: \(error.localizedDescription)"
         }
-        if vm.config.driversPending { attachDriversWhenReady() }
         return vm
     }
 

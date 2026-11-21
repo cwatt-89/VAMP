@@ -251,22 +251,7 @@ struct AutoInstallSection: View {
             VStack(alignment: .leading, spacing: FN.s2) {
                 line("Account", "\(vm.config.autoInstallUser ?? "") (administrator, signs in automatically the first time)")
                 line("Edition", "Windows 11 Pro (activate later with your own key in Settings → Activation)")
-                if vm.config.driversPending {
-                    if let p = lib.drivers.progress {
-                        HStack(spacing: FN.s2) {
-                            Text("Drivers").fnLabel().frame(width: 120, alignment: .leading)
-                            FNBar(fraction: p).frame(width: 220)
-                            Text(String(format: "%.0f%% of ~880 MB", p * 100)).fnCaption()
-                        }
-                    } else if let e = lib.drivers.error {
-                        HStack {
-                            Text(e).fnCaption(FN.danger)
-                            Button("Retry") { lib.attachDriversWhenReady() }.buttonStyle(.fn(.secondary, compact: true))
-                        }
-                    }
-                } else {
-                    line("Drivers", "virtio-win attached as CD 2; network, storage and balloon drivers install at first sign-in")
-                }
+                line("Drivers", "Built in (CD 2): Windows Setup installs network, display and storage drivers itself, so the internet works from the first boot")
                 line("Then", "Remote Desktop turns on and sleep turns off. A log is written to C:\\vamp-setup.log in Windows.")
                 Text("The VM restarts a few times during setup. A \"Press any key to boot from CD\" message on those restarts is normal; leave it and it continues from the disk.")
                     .fnCaption().fixedSize(horizontal: false, vertical: true)
@@ -289,7 +274,7 @@ struct WindowsGuide: View {
         ("If setup says \"This PC doesn't meet requirements\"", "Click Back, press Shift+F10, run this command, close the window, then click Next again. QEMU's ARM firmware doesn't pass the TPM or Secure Boot through to Windows.", "reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f & reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f"),
         ("Disk", "Windows setup sees the NVMe disk with no extra drivers. Choose it and continue.", nil),
         ("Skip the network requirement", "At \"Let's connect you to a network\", press Shift+F10 and run this command. The VM reboots and offers \"I don't have internet\".", "OOBE\\BYPASSNRO"),
-        ("Network driver", "After you reach the desktop, open CD2 (the virtio-win drivers ISO) and run virtio-win-guest-tools, or point Device Manager at the CD's NetKVM\\w11\\ARM64 folder.", nil),
+        ("Drivers", "Nothing to do: VAMP's built-in driver disc is in CD 2, and Windows Setup installs its network, display and storage drivers automatically.", nil),
         ("Remote Desktop (optional)", "Settings → System → Remote Desktop → On (Windows 11 Pro). Then use Open Remote Desktop above for a resizable window.", nil),
         ("Screen resolution", "Ramfb has a fixed size. To change it, restart, press Esc at the logo, then Device Manager → OVMF Platform Configuration.", nil),
     ]
@@ -299,8 +284,6 @@ struct WindowsGuide: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: FN.s1) {
                     Button("Get Windows 11 ARM ISO") { NSWorkspace.shared.open(URL(string: "https://www.microsoft.com/software-download/windows11arm64")!) }
-                        .buttonStyle(.fn(.secondary, compact: true))
-                    Button("Get virtio-win Drivers") { NSWorkspace.shared.open(URL(string: "https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md")!) }
                         .buttonStyle(.fn(.secondary, compact: true))
                 }
                 .padding(.bottom, FN.s3)

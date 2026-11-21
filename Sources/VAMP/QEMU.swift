@@ -62,6 +62,8 @@ struct VMPaths {
     var ctlSock: String { run.appendingPathComponent("ctl.sock").path }
     var vncSock: String { run.appendingPathComponent("vnc.sock").path }
     var tpmSock: String { run.appendingPathComponent("tpm.sock").path }
+    /// VAMP Tools channel (shared clipboard), a virtio-serial port on the guest side.
+    var clipSock: String { run.appendingPathComponent("clip.sock").path }
     var pidFile: String { run.appendingPathComponent("qemu.pid").path }
 }
 
@@ -77,19 +79,23 @@ enum QEMUCommand {
         a += ["-drive", "if=pflash,format=raw,readonly=on,file=\(esc(t.firmwareCode ?? ""))"]
         a += ["-drive", "if=pflash,format=qcow2,file=\(esc(p.vars.path))"]
 
+        // Every PCI device sits in a fixed slot, whatever else is configured. Windows identifies hardware
+        // by slot, so a device that moves (e.g. when the display type changes) shows up as new hardware
+        // ("Ethernet 2") and loses its settings. Slots match what existing installs already have.
+        //   01 USB · 02 display · 03 NVMe · 04 network · 05 audio · 06 RNG · 07 guest channel
         // Input: USB keyboard + absolute tablet (no mouse grab needed).
-        a += ["-device", "qemu-xhci,id=usb", "-device", "usb-kbd,bus=usb.0", "-device", "usb-tablet,bus=usb.0"]
+        a += ["-device", "qemu-xhci,id=usb,addr=0x1", "-device", "usb-kbd,bus=usb.0", "-device", "usb-tablet,bus=usb.0"]
 
         switch c.display {
         case .ramfb: a += ["-device", "ramfb"]
-        case .virtioGPU: a += ["-device", "virtio-gpu-pci,xres=1920,yres=1080"] // widescreen; Windows needs viogpudo (virtio-win)
+        case .virtioGPU: a += ["-device", "virtio-gpu-pci,addr=0x2,xres=1920,yres=1080"] // widescreen; driver is on VAMP's built-in driver disc
         }
 
         // System disk on NVMe: Windows ships an inbox NVMe driver, so setup sees it without extra drivers.
         a += ["-drive", "if=none,id=hd0,file=\(esc(p.disk.path)),format=qcow2,discard=unmap,detect-zeroes=unmap",
-              "-device", "nvme,drive=hd0,serial=FLOYDVM0,bootindex=0"] // serial kept from FloydVM so existing Windows installs see the same disk
+              "-device", "nvme,drive=hd0,serial=FLOYDVM0,addr=0x3,bootindex=0"] // serial kept from FloydVM so existing Windows installs see the same disk
 
-        // Two USB CD drives (installer + drivers). Explicit usb-bot + scsi-cd gives each a stable id
+        // USB CD drives: installer, VAMP driver disc, setup disc. Explicit usb-bot + scsi-cd gives each a stable id
         // ("cdrom0"/"cdrom1") for live media changes over QMP.
         var cds = [c.isoPath, c.driversISOPath]
         if let s = c.setupISOPath, FileManager.default.fileExists(atPath: s) { cds.append(s) }
@@ -105,7 +111,7 @@ enum QEMUCommand {
         case .nat:
             var net = "user,id=net0"
             for f in c.portForwards { net += ",hostfwd=\(f.proto):127.0.0.1:\(f.hostPort)-:\(f.guestPort)" }
-            a += ["-netdev", net, "-device", (c.nic == .virtio ? "virtio-net-pci" : "usb-net,bus=usb.0") + ",netdev=net0,mac=\(c.macAddress)"]
+            a += ["-netdev", net, "-device", "virtio-net-pci,addr=0x4,netdev=net0,mac=\(c.macAddress)"]
         case .none:
             a += ["-nic", "none"]
         }
@@ -116,9 +122,15 @@ enum QEMUCommand {
                   "-device", "tpm-tis-device,tpmdev=tpm0,ppi=off"]
         }
         if c.sound {
-            a += ["-audiodev", "coreaudio,id=snd0", "-device", "intel-hda", "-device", "hda-output,audiodev=snd0"]
+            a += ["-audiodev", "coreaudio,id=snd0", "-device", "intel-hda,addr=0x5", "-device", "hda-output,audiodev=snd0"]
         }
-        if c.os != .windows11 { a += ["-device", "virtio-rng-pci"] }
+        if c.os != .windows11 { a += ["-device", "virtio-rng-pci,addr=0x6"] }
+        if c.guestChannel {
+            // Shared clipboard: the VAMP Tools agent in the guest opens \\.\Global\org.vamp.clipboard; VAMP connects here.
+            a += ["-device", "virtio-serial-pci,id=vser0,addr=0x7",
+                  "-chardev", "socket,id=vampchan,path=\(p.clipSock),server=on,wait=off",
+                  "-device", "virtserialport,bus=vser0.0,chardev=vampchan,name=\(GuestChannel.portName)"]
+        }
         a += ["-rtc", c.os == .windows11 ? "base=localtime" : "base=utc"]
 
         a += ["-qmp", "unix:\(p.qmpSock),server=on,wait=off", "-qmp", "unix:\(p.ctlSock),server=on,wait=off", "-vnc", "unix:\(p.vncSock)",

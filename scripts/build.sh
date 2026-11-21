@@ -29,6 +29,13 @@ if [ ! -f Resources/AppIcon.icns ]; then
   rm -rf "$TMP"
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Windows ARM64 drivers (virtio-win subset) — built in, so VMs never download anything.
+rm -rf "$APP/Contents/Resources/drivers"
+cp -R Resources/drivers "$APP/Contents/Resources/drivers"
+# DNS failover helper loaded into QEMU (see native/vampnet.c).
+clang -dynamiclib -O2 -Wall -arch arm64 -mmacosx-version-min=14.0 -o "$APP/Contents/Resources/libvampnet.dylib" native/vampnet.c -lresolv
+rm -rf "$APP/Contents/Resources/guest"
+cp -R Resources/guest "$APP/Contents/Resources/guest"
 
 codesign --force --sign - "$APP"
 echo "Built $APP"

@@ -297,6 +297,14 @@ struct ConsolePane: View {
         HStack(spacing: FN.s1) {
             Button { vm.sendCtrlAltDel() } label: { Label("Ctrl-Alt-Del", systemImage: "command") }
                 .buttonStyle(.fn(.secondary, compact: true))
+            Button { vm.config.sharedClipboard.toggle() } label: {
+                Label("Clipboard", systemImage: vm.config.sharedClipboard && vm.guestToolsReady ? "doc.on.clipboard.fill" : "doc.on.clipboard")
+            }
+            .buttonStyle(.fn(vm.config.sharedClipboard && vm.guestToolsReady ? .primary : .secondary, compact: true))
+            .help(vm.config.sharedClipboard
+                  ? (vm.guestToolsReady ? "Shared clipboard is on: copy on either side, paste on the other. Click to turn off."
+                                        : "Shared clipboard is on, waiting for VAMP Tools in the guest. Click to turn off.")
+                  : "Shared clipboard is off. Click to turn on.")
             Button {
                 if let s = NSPasteboard.general.string(forType: .string) { vm.type(s) }
             } label: { Label("Type Clipboard", systemImage: "keyboard") }
@@ -337,10 +345,6 @@ struct ConsolePane: View {
                 Text("· pointer to the top edge shows this bar").fnCaption()
             }
             Spacer()
-            if vm.config.driversPending, let p = lib.drivers.progress {
-                Text(String(format: "Downloading drivers %.0f%%", p * 100)).fnCaption()
-                FNBar(fraction: p).frame(width: 100)
-            }
             if let n = vm.notice { Text(n).fnCaption(FN.accent).lineLimit(1) }
             if vm.fbSize.width > 0 { Text("\(Int(vm.fbSize.width))×\(Int(vm.fbSize.height))").fnCaption() }
             Text(vm.state.title).fnLabel(vm.state == .running ? FN.accent : FN.muted)

@@ -8,6 +8,8 @@ enum Unattend {
         var username: String
         var password: String
         var computerName: String
+        /// Windows time-zone ID matching the Mac ("Central Standard Time"); nil leaves Setup's default.
+        var timeZone: String? = nil
     }
 
     static func xmlEscape(_ s: String) -> String {
@@ -31,6 +33,7 @@ enum Unattend {
         let user = xmlEscape(a.username)
         let pass = xmlEscape(a.password)
         let comp = xmlEscape(a.computerName)
+        let tz = a.timeZone.map { "<TimeZone>\(xmlEscape($0))</TimeZone>" } ?? ""
         let arch = #"processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State""#
         func reg(_ order: Int, _ key: String, _ name: String) -> String {
             """
@@ -97,6 +100,7 @@ enum Unattend {
               <InputLocale>en-US</InputLocale><SystemLocale>en-US</SystemLocale><UILanguage>en-US</UILanguage><UserLocale>en-US</UserLocale>
             </component>
             <component name="Microsoft-Windows-Shell-Setup" \(arch)>
+              \(tz)
               <OOBE>
                 <HideEULAPage>true</HideEULAPage>
                 <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
@@ -135,8 +139,9 @@ enum Unattend {
         """
     }
 
-    /// Runs once at first sign-in (hidden): Remote Desktop, no sleep, then waits for the virtio-win CD
-    /// (it may still be downloading on the Mac) and installs its ARM64 drivers — network first.
+    /// Runs once at first sign-in (hidden): Remote Desktop, no sleep, re-applies VAMP's built-in drivers
+    /// (Windows Setup already installed them from the disc's $WinPEDriver$ folder; this is a safety net),
+    /// then installs VAMP Tools for the shared clipboard.
     static let setupScript = #"""
     $log = "$env:SystemDrive\vamp-setup.log"
     Start-Transcript -Path $log -Append | Out-Null
@@ -147,16 +152,17 @@ enum Unattend {
       powercfg /change standby-timeout-ac 0
       powercfg /hibernate off
     } catch { $_ }
-    $deadline = (Get-Date).AddHours(3)
-    while ((Get-Date) -lt $deadline) {
-      $src = Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Root } | Where-Object { Test-Path (Join-Path $_ 'NetKVM') } | Select-Object -First 1
+    $deadline = (Get-Date).AddMinutes(5)
+    do {
+      $src = Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Root } | Where-Object { Test-Path -LiteralPath (Join-Path $_ '$WinPEDriver$') } | Select-Object -First 1
       if ($src) {
-        $infs = Get-ChildItem $src -Recurse -Filter *.inf -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\w11\\ARM64\\' }
-        $infs | Sort-Object { $_.FullName -notmatch 'NetKVM' } | ForEach-Object { pnputil /add-driver $_.FullName /install }
+        pnputil /add-driver (Join-Path $src '$WinPEDriver$\*.inf') /subdirs /install
+        # VAMP Tools: shared clipboard with the Mac (compiled here, started at every sign-in).
+        try { & (Join-Path $src 'VAMP Tools\install.ps1') } catch { $_ }
         break
       }
-      Start-Sleep -Seconds 15
-    }
+      Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
     Stop-Transcript | Out-Null
     """#
 
@@ -197,75 +203,77 @@ enum ISOFinder {
     }
 }
 
-/// Downloads and caches virtio-win.iso (once, ~880 MB) for every Windows VM.
-@Observable @MainActor
-final class DriverStore {
-    static let url = URL(string: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso")!
-    static var cached: URL { Library.root.appendingPathComponent("Cache/virtio-win.iso") }
+/// VAMP's own Windows ARM64 drivers (a ~3 MB virtio-win subset bundled in the app: network, display,
+/// storage, balloon, serial, RNG, input). Packed as a CD whose `$WinPEDriver$` folder Windows Setup scans
+/// on every drive and installs automatically, so networking works from the first boot with nothing to fetch.
+@MainActor
+enum DriverDisc {
+    static let volume = "VAMPDRIVERS"
+    /// Bump when the drivers or VAMP Tools change: VMs pick up the new disc at their next start.
+    static let version = "virtio-win-0.1.302-tools8"
+    static let toolsFolder = "VAMP Tools"
 
-    var progress: Double?
-    var error: String?
-    @ObservationIgnored private var waiters: [CheckedContinuation<String?, Never>] = []
-    @ObservationIgnored private var task: URLSessionDownloadTask?
-    @ObservationIgnored private var observation: NSKeyValueObservation?
+    /// Bundled driver folder: the app's Resources, or the repo's when run from a dev build.
+    static var source: URL? { resource("drivers", marker: "NetKVM/netkvm.inf") }
+    /// The VAMP Tools guest agent (shared clipboard): C# source + installer, compiled inside the guest.
+    static var toolsSource: URL? { resource("guest", marker: "VAMPTools.cs") }
 
-    var available: String? { FileManager.default.fileExists(atPath: DriverStore.cached.path) ? DriverStore.cached.path : nil }
-
-    /// Returns the cached ISO path, downloading it first if needed (nil on failure).
-    func ensure() async -> String? {
-        if let available { return available }
-        return await withCheckedContinuation { cont in
-            waiters.append(cont)
-            if task == nil { begin() }
-        }
+    private static func resource(_ name: String, marker: String) -> URL? {
+        let fm = FileManager.default
+        var candidates: [URL] = []
+        if let r = Bundle.main.resourceURL { candidates.append(r.appendingPathComponent(name)) }
+        let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        var dir = exe.deletingLastPathComponent()
+        for _ in 0..<6 { candidates.append(dir.appendingPathComponent("Resources/" + name)); dir.deleteLastPathComponent() }
+        return candidates.first { fm.fileExists(atPath: $0.appendingPathComponent(marker).path) }
     }
 
-    private func begin() {
-        error = nil
-        progress = 0
-        let t = URLSession.shared.downloadTask(with: DriverStore.url) { [weak self] tmp, resp, err in
-            var result: String?
-            var failure: String?
-            if let tmp, (resp as? HTTPURLResponse)?.statusCode == 200 {
-                let dest = DriverStore.cached
-                try? FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? FileManager.default.removeItem(at: dest)
-                do { try FileManager.default.moveItem(at: tmp, to: dest); result = dest.path } catch { failure = error.localizedDescription }
-            } else {
-                failure = err?.localizedDescription ?? "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)"
-            }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.progress = nil
-                self.task = nil
-                self.observation = nil
-                if let failure { self.error = "Driver download failed: \(failure)" }
-                let w = self.waiters
-                self.waiters = []
-                for c in w { c.resume(returning: result) }
-            }
+    static var path: String { Library.root.appendingPathComponent("Cache/vamp-drivers-\(version).iso").path }
+
+    /// True for paths VAMP manages in CD 2 (this disc, older versions of it, or the old virtio-win download).
+    static func isManaged(_ p: String) -> Bool {
+        let name = (p as NSString).lastPathComponent
+        return p.hasPrefix(Library.root.appendingPathComponent("Cache").path)
+            && (name.hasPrefix("vamp-drivers-") || name == "virtio-win.iso")
+    }
+
+    /// Builds the disc once per driver version (well under a second) and returns its path.
+    static func ensure() async throws -> String {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: path) { return path }
+        guard let src = source, let tools = toolsSource else { throw FVError("VAMP's built-in Windows drivers are missing from the app bundle.") }
+        let stage = fm.temporaryDirectory.appendingPathComponent("vampdrivers-\(UUID().uuidString.prefix(8))")
+        defer { try? fm.removeItem(at: stage) }
+        let root = stage.appendingPathComponent("$WinPEDriver$")
+        try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        try fm.copyItem(at: src, to: root)
+        for extra in ["LICENSE-virtio-win.txt", "VERSION.txt"] where fm.fileExists(atPath: root.appendingPathComponent(extra).path) {
+            try fm.moveItem(at: root.appendingPathComponent(extra), to: stage.appendingPathComponent(extra))
         }
-        observation = t.progress.observe(\.fractionCompleted) { [weak self] p, _ in
-            let f = p.fractionCompleted
-            DispatchQueue.main.async { self?.progress = f }
-        }
-        t.delegate = HTTPSUpgrader.shared
-        task = t
-        t.resume()
+        try fm.copyItem(at: tools, to: stage.appendingPathComponent(toolsFolder))
+        try fm.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let tmp = (path as NSString).deletingPathExtension + ".part.iso" // hdiutil appends .iso to other names
+        try? fm.removeItem(atPath: tmp)
+        try await Shell.check("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-joliet", "-default-volume-name", volume,
+                                                   "-o", tmp, stage.path])
+        try? fm.removeItem(atPath: path)
+        try fm.moveItem(atPath: tmp, toPath: path)
+        return path
     }
 }
 
-/// fedorapeople's "stable" link redirects to plain http://, which App Transport Security refuses.
-/// Follow the redirect over https instead (the same paths are served there).
-final class HTTPSUpgrader: NSObject, URLSessionTaskDelegate {
-    static let shared = HTTPSUpgrader()
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        var r = request
-        if let u = r.url, u.scheme == "http", var c = URLComponents(url: u, resolvingAgainstBaseURL: false) {
-            c.scheme = "https"
-            r.url = c.url
-        }
-        completionHandler(r)
+/// The Mac's time zone as a Windows time-zone ID, via ICU's CLDR mapping (libicucore ships with macOS).
+enum WindowsTimeZone {
+    static func current(_ tz: TimeZone = .current) -> String? {
+        typealias Fn = @convention(c) (UnsafePointer<UInt16>, Int32, UnsafeMutablePointer<UInt16>, Int32, UnsafeMutablePointer<Int32>) -> Int32
+        guard let lib = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY) ?? dlopen("libicucore.dylib", RTLD_LAZY),
+              let sym = dlsym(lib, "ucal_getWindowsTimeZoneID") else { return nil }
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        let id = Array(tz.identifier.utf16)
+        var out = [UInt16](repeating: 0, count: 128)
+        var status: Int32 = 0
+        let n = id.withUnsafeBufferPointer { fn($0.baseAddress!, Int32(id.count), &out, Int32(out.count), &status) }
+        guard status <= 0, n > 0 else { return nil }
+        return String(utf16CodeUnits: out, count: Int(n))
     }
 }

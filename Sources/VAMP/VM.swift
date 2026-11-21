@@ -23,11 +23,14 @@ final class VM: Identifiable {
     var snapshots: [SnapshotInfo] = []
     var fbSize: CGSize = .zero
     var thumbnail: NSImage?
+    /// VAMP Tools answered in the guest, so copy and paste works both ways.
+    var guestToolsReady = false
 
     @ObservationIgnored private(set) var lastFrame: CGImage?
     @ObservationIgnored private var sinks: [UUID: (CGImage) -> Void] = [:]
     @ObservationIgnored private(set) var qmp: QMPClient?
     @ObservationIgnored private(set) var vnc: VNCClient?
+    @ObservationIgnored private var clipboard: ClipboardSync?
     @ObservationIgnored private var pid: pid_t = 0
     @ObservationIgnored private var exitSource: DispatchSourceProcess?
     @ObservationIgnored private var tpmProc: Process?
@@ -86,6 +89,16 @@ final class VM: Identifiable {
         let t = tools
         guard let qemu = t.qemu, t.ready else { throw FVError("QEMU isn't installed. Run: brew install qemu swtpm") }
         let fm = FileManager.default
+        if config.os == .windows11 {
+            // Networking is built in: virtio-net plus VAMP's driver disc in CD 2 (replacing a missing disc,
+            // an older version of it, or the old ~880 MB virtio-win download). A disc the user chose stays.
+            if config.nic != .virtio { config.nic = .virtio }
+            config.driversPending = false
+            let cd2 = config.driversISOPath
+            if cd2 == nil || !fm.fileExists(atPath: cd2!) || DriverDisc.isManaged(cd2!) {
+                if let disc = try? await DriverDisc.ensure(), disc != cd2 { config.driversISOPath = disc }
+            }
+        }
         try? fm.removeItem(at: paths.run)
         try fm.createDirectory(at: paths.run, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         fm.createFile(atPath: paths.log.path, contents: nil)
@@ -110,6 +123,9 @@ final class VM: Identifiable {
         }
 
         let restore = loadVM ?? (config.suspended ? QEMUCommand.suspendTag : nil)
+        // A suspended VM's saved state must resume on the hardware it was saved with; the guest channel
+        // joins at the next cold start. Everything else gets it now.
+        if !config.guestChannel && restore != QEMUCommand.suspendTag { config.guestChannel = true }
         let args = QEMUCommand.arguments(config, paths: paths, tools: t, loadVM: restore)
         log.write(Data(("$ " + QEMUCommand.shellLine(qemu, args) + "\n\n").utf8))
         let p = Process()
@@ -118,6 +134,12 @@ final class VM: Identifiable {
         p.standardOutput = log
         p.standardError = log
         p.standardInput = FileHandle.nullDevice
+        if let net = VM.dnsHelper {
+            // Keeps the VM's NAT DNS working when macOS's first DNS server is dead (see native/vampnet.c).
+            var env = ProcessInfo.processInfo.environment
+            env["DYLD_INSERT_LIBRARIES"] = net
+            p.environment = env
+        }
         try p.run()
         pid = p.processIdentifier
         cleanShutdown = false
@@ -132,6 +154,7 @@ final class VM: Identifiable {
             _ = try? await q.hmp("delvm \(QEMUCommand.suspendTag)")
         }
         await connectVNC()
+        connectGuestChannel()
         startStats()
         if config.autoBootCD {
             config.autoBootCD = false
@@ -184,6 +207,7 @@ final class VM: Identifiable {
                 let q = try await QMPClient.connect(path: paths.qmpSock, timeout: 5) { ProcStats.alive(p) }
                 attach(q)
                 await connectVNC()
+                connectGuestChannel()
                 startStats()
                 notice = "Reconnected to the running VM."
             } catch {
@@ -219,6 +243,37 @@ final class VM: Identifiable {
         v.onFrame = { [weak self] img in self?.deliver(img) }
     }
 
+    /// Shared clipboard over VAMP's guest channel. Quietly absent for a VM started without the device.
+    static var dnsHelper: String? {
+        guard let path = Bundle.main.resourceURL?.appendingPathComponent("libvampnet.dylib").path,
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
+    }
+
+    /// Off for headless helpers (--boot, trial installs): QEMU serves one client at a time and only notices a
+    /// client has gone once the guest reads, so a short-lived helper would hold the line the app needs.
+    static var guestChannelEnabled = true
+
+    private func connectGuestChannel() {
+        let path = paths.clipSock
+        guard VM.guestChannelEnabled, FileManager.default.fileExists(atPath: path) else { return }
+        Task {
+            guard state.isOn, clipboard == nil,
+                  let ch = try? await GuestChannel.connect(path: path, timeout: 3) else { return }
+            let sync = ClipboardSync(channel: ch) { [weak self] in self?.config.sharedClipboard ?? false }
+            sync.onReadyChange = { [weak self] ready in self?.guestToolsReady = ready }
+            ch.onClose = { [weak self, weak sync] in
+                guard let self, let sync, self.clipboard === sync else { return }
+                sync.stop()
+                self.clipboard = nil
+                self.guestToolsReady = false
+                // Only a garbled frame ends the stream while QEMU lives: reconnect for a clean start.
+                Task { try? await Task.sleep(for: .seconds(1)); if self.state.isOn { self.connectGuestChannel() } }
+            }
+            clipboard = sync
+        }
+    }
+
     private func watchExit() {
         exitSource?.cancel()
         let src = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
@@ -235,6 +290,8 @@ final class VM: Identifiable {
         exitSource = nil
         qmp?.close(); qmp = nil
         vnc?.close(); vnc = nil
+        clipboard?.stop(); clipboard = nil
+        guestToolsReady = false
         if let t = tpmProc, t.isRunning { t.terminate() }
         tpmProc = nil
         statsTimer?.invalidate(); statsTimer = nil

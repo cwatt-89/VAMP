@@ -54,7 +54,12 @@ enum Entry {
     static func main() {
         if let i = CommandLine.arguments.firstIndex(of: "--trial-install"), CommandLine.arguments.count > i + 3 {
             let a = CommandLine.arguments
-            Task { @MainActor in await SelfTest.trialInstall(iso: a[i + 1], outDir: a[i + 2], minutes: Double(a[i + 3]) ?? 5); exit(0) }
+            Task { @MainActor in VM.guestChannelEnabled = false; await SelfTest.trialInstall(iso: a[i + 1], outDir: a[i + 2], minutes: Double(a[i + 3]) ?? 5); exit(0) }
+            RunLoop.main.run()
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--trial-linux"), CommandLine.arguments.count > i + 3 {
+            let a = CommandLine.arguments
+            Task { @MainActor in VM.guestChannelEnabled = false; await SelfTest.trialLinux(iso: a[i + 1], seed: a[i + 2], outDir: a[i + 3]); exit(0) }
             RunLoop.main.run()
         }
         if let i = CommandLine.arguments.firstIndex(of: "--guest-script"), CommandLine.arguments.count > i + 3 {
@@ -66,6 +71,7 @@ enum Entry {
             // Starts a library VM headlessly and leaves it running; the app reattaches when opened.
             let key = CommandLine.arguments[i + 1].lowercased()
             Task { @MainActor in
+                VM.guestChannelEnabled = false
                 let lib = Library()
                 guard let vm = lib.vms.first(where: { $0.id.uuidString.lowercased().hasPrefix(key) || $0.config.name.lowercased() == key })
                 else { print("no such VM"); exit(1) }

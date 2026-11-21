@@ -45,13 +45,13 @@ struct HardwareTab: View {
                         }
                         .disabled(locked)
                         HWRow("CD 1 (installer)") { mediaRow(slot: 0, path: vm.config.isoPath) }
-                        HWRow("CD 2 (drivers)") { mediaRow(slot: 1, path: vm.config.driversISOPath) }
+                        HWRow("CD 2 (drivers, tools)") { mediaRow(slot: 1, path: vm.config.driversISOPath) }
                     }
                 }
                 FNSection(title: "Network") {
                     VStack(alignment: .leading, spacing: FN.s3) {
                         HWRow("Mode") { FNSegmented(selection: $vm.config.network, items: NetworkMode.allCases.map { ($0, $0.title) }) }
-                        HWRow("Adapter") { FNMenuPicker(selection: $vm.config.nic, options: NICModel.allCases.map { ($0, $0.title) }) }
+                        HWRow("Adapter") { Text("virtio-net · driver built in").fnData() }
                         HWRow("MAC address") {
                             Text(vm.config.macAddress).fnData().textSelection(.enabled)
                             Button("Regenerate") { vm.config.macAddress = VMConfig.randomMAC() }.buttonStyle(.fn(.ghost))
@@ -65,9 +65,16 @@ struct HardwareTab: View {
                         Toggle("TPM 2.0 (required by Windows 11 setup; state kept in the VM bundle)", isOn: $vm.config.tpm).toggleStyle(.fnCheckbox)
                         Toggle("Sound output (Intel HD Audio → this Mac's speakers)", isOn: $vm.config.sound).toggleStyle(.fnCheckbox)
                         HWRow("Display") { FNMenuPicker(selection: $vm.config.display, options: DisplayDevice.allCases.map { ($0, $0.title) }) }
-                        Text("Windows ARM has no virtio-gpu driver, so use Framebuffer for Windows. There's no 3D acceleration either way.").fnCaption()
+                        Text("Widescreen uses virtio-gpu (Windows driver built into VAMP; Linux has it in the kernel). Basic 4:3 is a plain framebuffer. No 3D acceleration either way.").fnCaption()
                     }
                     .disabled(locked)
+                }
+                FNSection(title: "Integration") {
+                    VStack(alignment: .leading, spacing: FN.s3) {
+                        Toggle("Shared clipboard (copy and paste text and images between the Mac and the VM)", isOn: $vm.config.sharedClipboard)
+                            .toggleStyle(.fnCheckbox)
+                        Text(clipboardStatus).fnCaption()
+                    }
                 }
                 FNSection(title: "Advanced", caption: "Extra arguments appended to the QEMU command line, separated by spaces.") {
                     FNTextField(placeholder: "-device virtio-balloon-pci", text: $vm.config.extraArgs).disabled(locked)
@@ -91,6 +98,14 @@ struct HardwareTab: View {
     private var growChoices: [Int] {
         let cur = Int(vm.diskVirtual / 1_073_741_824)
         return [0] + [64, 80, 128, 160, 256, 384, 512, 1024].filter { $0 > cur }
+    }
+
+    private var clipboardStatus: String {
+        if vm.config.os != .windows11 { return "Needs the VAMP Tools agent in the guest; it's installed automatically only for Windows." }
+        if !vm.state.isOn { return "VAMP Tools in Windows does the guest side. VMs set up by VAMP get it automatically; for others, run \"Install VAMP Tools\" from CD 2 (one admin prompt)." }
+        if vm.guestToolsReady { return "Connected to VAMP Tools in the guest." }
+        if !vm.config.guestChannel || !FileManager.default.fileExists(atPath: vm.paths.clipSock) { return "Starts working after the VM's next restart." }
+        return "Waiting for VAMP Tools in the guest. If it never connects, open CD 2 in Windows and run \"Install VAMP Tools\"."
     }
 
     private func mediaRow(slot: Int, path: String?) -> some View {

@@ -25,8 +25,10 @@ enum DisplayDevice: String, Codable, CaseIterable {
 }
 
 enum NICModel: String, Codable, CaseIterable {
+    /// usbNet is kept only so old configs decode; every VM gets virtio-net (Windows' USB-net support
+    /// doesn't work with QEMU's device, and VAMP ships the virtio driver).
     case virtio, usbNet
-    var title: String { self == .virtio ? "virtio-net (fast, needs driver)" : "USB Ethernet (built-in driver)" }
+    var title: String { "virtio-net" }
 }
 
 enum NetworkMode: String, Codable, CaseIterable {
@@ -70,6 +72,11 @@ struct VMConfig: Codable, Hashable, Identifiable {
     /// The virtio-win ISO is still downloading; attach it as CD 2 when it lands.
     var driversPending = false
     var autoInstallUser: String?
+    /// Copy and paste between the Mac and the guest (needs VAMP Tools in the guest; Windows gets it automatically).
+    var sharedClipboard = true
+    /// The guest-channel device (virtio-serial) is part of this VM's hardware. Older VMs gain it on their next
+    /// cold start; a suspended one first resumes without it, since a saved state must match its hardware.
+    var guestChannel = true
 
     init(name: String, os: GuestOS) {
         self.name = name
@@ -114,6 +121,8 @@ struct VMConfig: Codable, Hashable, Identifiable {
         autoBootCD = (try? c.decode(Bool.self, forKey: .autoBootCD)) ?? false
         driversPending = (try? c.decode(Bool.self, forKey: .driversPending)) ?? false
         autoInstallUser = try? c.decodeIfPresent(String.self, forKey: .autoInstallUser)
+        sharedClipboard = (try? c.decode(Bool.self, forKey: .sharedClipboard)) ?? true
+        guestChannel = (try? c.decode(Bool.self, forKey: .guestChannel)) ?? false
     }
 }
 

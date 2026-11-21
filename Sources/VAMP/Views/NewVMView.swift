@@ -79,9 +79,7 @@ struct NewVMModal: View {
                 }
 
                 if os == .windows11 {
-                    Text(lib.drivers.available != nil
-                         ? "Network drivers: ready."
-                         : "Network drivers (virtio-win, ~880 MB) download once in the background and install themselves when Windows first signs in.")
+                    Text("Network, display and storage drivers are built into VAMP. Windows has internet from its first boot; nothing downloads.")
                         .fnCaption().fixedSize(horizontal: false, vertical: true)
                 }
                 if let error { Text(error).fnCaption(FN.danger).fixedSize(horizontal: false, vertical: true) }
