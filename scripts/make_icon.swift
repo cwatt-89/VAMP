@@ -1,6 +1,7 @@
 // Renders the VAMP app icon in the FloydNet Terminal style:
 // black ground, hairline frame, stretched Times New Roman "V" inside a nested "screen" compartment.
 import AppKit
+import CoreText
 
 let size: CGFloat = 1024
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon_1024.png"
@@ -31,12 +32,25 @@ NSRect(x: screen.minX + 30, y: screen.minY + 30, width: screen.width - 60, heigh
 hex(0x3DFFA0).setFill()
 NSRect(x: screen.maxX - 70, y: screen.maxY - 70, width: 36, height: 36).fill()
 
-let font = NSFont(name: "TimesNewRomanPSMT", size: 330) ?? NSFont.systemFont(ofSize: 330)
-let str = NSAttributedString(string: "V", attributes: [.font: font, .foregroundColor: hex(0xF2F2F2)])
+// The "V": placed by its actual ink bounds (not the font's line box), so it sits inside the frame with
+// the same margin on top and left, and its stretched height spans the space above the screen.
+let stretch: CGFloat = 1.55
+let margin: CGFloat = 56
+let font = NSFont(name: "TimesNewRomanPSMT", size: 100) ?? NSFont.systemFont(ofSize: 100)
+var glyph = CGGlyph(0)
+var ch: [UniChar] = Array("V".utf16)
+CTFontGetGlyphsForCharacters(font, &ch, &glyph, 1)
+let unit = CTFontGetBoundingRectsForGlyphs(font, .default, &glyph, nil, 1) // ink bounds at 100 pt
+let inkHeight = (frame.maxY - margin) - (screen.maxY - 40)                  // top margin down past the screen's top edge (the V sits left of it)
+let pt = 100 * inkHeight / (unit.height * stretch)
+let sized = CTFontCreateWithName("TimesNewRomanPSMT" as CFString, pt, nil)
+let b = CTFontGetBoundingRectsForGlyphs(sized, .default, &glyph, nil, 1)
 ctx.saveGState()
-ctx.translateBy(x: frame.minX + 46, y: frame.minY + 250)
-ctx.scaleBy(x: 1, y: 1.55)
-str.draw(at: .zero)
+ctx.translateBy(x: frame.minX + margin - b.minX, y: (frame.maxY - margin) - stretch * b.maxY)
+ctx.scaleBy(x: 1, y: stretch)
+ctx.setFillColor(hex(0xF2F2F2).cgColor)
+var origin = CGPoint.zero
+CTFontDrawGlyphs(sized, &glyph, &origin, 1, ctx)
 ctx.restoreGState()
 
 NSGraphicsContext.restoreGraphicsState()

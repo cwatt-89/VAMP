@@ -108,12 +108,17 @@ struct Stretched: View {
     /// Optional trailing mark in its own color (e.g. the wordmark's accent period).
     var suffix: String?
     var suffixColor: Color = FN.accent
+    /// Extra space after the first letter, in ems (undoes an over-tight kerning pair like Times' "VA").
+    var leadKern: CGFloat = 0
 
     var body: some View {
-        (Text(uppercase ? text.uppercased() : text).foregroundColor(color)
-            + Text(suffix ?? "").foregroundColor(suffixColor))
+        let shown = uppercase ? text.uppercased() : text
+        // Spacing goes on each run (an outer .tracking would override the first letter's own).
+        let head = leadKern == 0 ? Text(shown).tracking(tracking * size)
+            : Text(String(shown.prefix(1))).tracking((tracking + leadKern) * size) + Text(String(shown.dropFirst())).tracking(tracking * size)
+        return (head.foregroundColor(color)
+            + Text(suffix ?? "").tracking(tracking * size).foregroundColor(suffixColor))
             .font(.custom(FN.displayFamily, size: size))
-            .tracking(tracking * size)
             .lineLimit(1)
             .scaleEffect(x: 1, y: scale, anchor: .leading)
             .padding(.vertical, size * (scale - 1) / 2)
@@ -123,7 +128,8 @@ struct Stretched: View {
 struct FNWordmark: View {
     var text = "VAMP"
     var size: CGFloat = 42
-    var body: some View { Stretched(text: text, size: size, scale: 1.55, tracking: -0.01, suffix: ".") }
+    // Times kerns "VA" so tightly that, stretched, the A tucks under the V's arm; nudge the V a touch.
+    var body: some View { Stretched(text: text, size: size, scale: 1.55, tracking: -0.01, suffix: ".", leadKern: 0.07) }
 }
 
 struct FNHeading: View {
