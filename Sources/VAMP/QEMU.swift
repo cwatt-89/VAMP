@@ -179,7 +179,7 @@ enum Shell {
 
 enum DiskImage {
     static func create(_ tools: QEMUTools, paths: VMPaths, sizeGB: Int) async throws {
-        guard let img = tools.img, let vars = tools.varsTemplate else { throw FVError("qemu-img not found. Install QEMU: brew install qemu") }
+        guard let img = tools.img, let vars = tools.varsTemplate else { throw FVError("VAMP's built-in qemu-img is missing. Reinstall VAMP.") }
         try await Shell.check(img, ["create", "-q", "-f", "qcow2", paths.disk.path, "\(sizeGB)G"])
         // UEFI variable store as qcow2 (not raw) so internal snapshots (savevm) can include it.
         try await Shell.check(img, ["convert", "-q", "-f", "raw", "-O", "qcow2", vars, paths.vars.path])

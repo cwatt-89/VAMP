@@ -12,30 +12,26 @@
 - **Widescreen console.** Docked, expanded, or edge-to-edge full screen in one window.
 - **The rest.** Live snapshots (memory and disk), suspend/resume, clone, port forwarding (Remote Desktop and SSH set up automatically), TPM 2.0 via swtpm, sound.
 
-## Requirements
-
-- Apple Silicon Mac, macOS 14 or later
-- [Homebrew](https://brew.sh) QEMU and swtpm:
-
-  ```bash
-  brew install qemu swtpm
-  ```
-
-- A Windows 11 ARM64 ISO ([download from Microsoft](https://www.microsoft.com/software-download/windows11arm64)) or any ARM64 Linux ISO
-
 ## Install
 
-Download `VAMP.zip` from [Releases](../../releases), unzip it, and move `VAMP.app` to Applications. The app is not notarized, so the first time, right-click it and choose **Open**. Or run:
+1. Download **VAMP.dmg** from [Releases](../../releases/latest).
+2. Open it and drag **VAMP** onto **Applications**.
+3. Open VAMP. It isn't notarized by Apple, so macOS asks once:
+   - **macOS 15 or later:** macOS says it can't verify VAMP; click **Done**. Then open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to VAMP, and confirm.
+   - **macOS 14:** right-click VAMP in Applications, choose **Open**, then **Open**.
 
-```bash
-xattr -dr com.apple.quarantine /Applications/VAMP.app
-```
+That's all. QEMU, the TPM emulator, firmware and Windows drivers are all inside the app, so there's nothing else to install.
+
+**You need** an Apple Silicon Mac with macOS 14 or later, and a Windows 11 ARM64 ISO ([free from Microsoft](https://www.microsoft.com/software-download/windows11arm64)) or any ARM64 Linux ISO.
 
 ## Build from source
+
+Building needs Homebrew's `qemu` and `swtpm`. The build copies them, with their libraries and licenses, into the app.
 
 ```bash
 ./scripts/build.sh            # builds build/VAMP.app
 ./scripts/build.sh --install  # and copies it to /Applications
+./scripts/make_dmg.sh         # packs build/VAMP.dmg
 ```
 
 `VAMP.app/Contents/MacOS/VAMP --selftest` boots a real VM and checks the whole stack.
@@ -44,4 +40,4 @@ xattr -dr com.apple.quarantine /Applications/VAMP.app
 
 - VM bundles live in `~/Library/Application Support/VAMP/VMs`.
 - Windows activation is up to you. VAMP uses Microsoft's generic install key, which selects the edition but doesn't activate it.
-- The bundled drivers are from the [virtio-win](https://github.com/virtio-win/kvm-guest-drivers-windows) project; see `Resources/drivers/LICENSE-virtio-win.txt`.
+- Bundled third-party software keeps its own license. The QEMU, swtpm and library licenses are in `VAMP.app/Contents/Resources/qemu/licenses` (with versions and source links in `SOURCES.txt`). The Windows drivers are from [virtio-win](https://github.com/virtio-win/kvm-guest-drivers-windows); see `Resources/drivers/LICENSE-virtio-win.txt`.

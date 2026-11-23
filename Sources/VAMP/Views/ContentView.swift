@@ -131,7 +131,7 @@ struct ToolsWarning: View {
     var body: some View {
         VStack(alignment: .leading, spacing: FN.s1) {
             Text(lib.tools.ready ? "TPM support missing" : "QEMU not installed").fnLabel(FN.warn)
-            Text("Install with Homebrew, then click Check Again:").fnCaption()
+            Text("VAMP's built-in copy is missing: reinstall VAMP, or install with Homebrew and click Check Again:").fnCaption()
             Text("brew install \(lib.tools.missing.joined(separator: " "))").fnData(FN.accent).textSelection(.enabled)
             HStack {
                 Button("Copy") {

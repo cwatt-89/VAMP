@@ -19,6 +19,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A downloaded VAMP carries macOS's quarantine flag on every file. Opening the app clears it for the app
+    /// itself, but the bundled QEMU/swtpm would still be blocked when VAMP launches them, so clear it on
+    /// our own helpers (no effect when the app runs from a read-only location).
+    static func clearQuarantine() {
+        guard let res = Bundle.main.resourceURL else { return }
+        var urls = [res.appendingPathComponent("libvampnet.dylib")]
+        if let e = FileManager.default.enumerator(at: res.appendingPathComponent("qemu"), includingPropertiesForKeys: nil) {
+            for case let u as URL in e { urls.append(u) }
+        }
+        for u in urls { removexattr(u.path, "com.apple.quarantine", XATTR_NOFOLLOW) }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -52,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 enum Entry {
     static func main() {
+        AppDelegate.clearQuarantine()
         if let i = CommandLine.arguments.firstIndex(of: "--trial-install"), CommandLine.arguments.count > i + 3 {
             let a = CommandLine.arguments
             Task { @MainActor in VM.guestChannelEnabled = false; await SelfTest.trialInstall(iso: a[i + 1], outDir: a[i + 2], minutes: Double(a[i + 3]) ?? 5); exit(0) }
@@ -155,7 +168,7 @@ struct PreferencesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: FN.s4) {
-            FNSection(title: "QEMU", caption: "VAMP looks in Homebrew (/opt/homebrew), /usr/local and MacPorts. Set a prefix to use another install.") {
+            FNSection(title: "QEMU", caption: "VAMP uses its own built-in QEMU. Set a prefix only to use a different install (Homebrew, MacPorts…).") {
                 VStack(alignment: .leading, spacing: FN.s2) {
                     tool("qemu-system-aarch64", lib.tools.qemu)
                     tool("qemu-img", lib.tools.img)

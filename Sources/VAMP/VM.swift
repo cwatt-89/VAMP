@@ -88,7 +88,7 @@ final class VM: Identifiable {
     private func launch(loadVM: String?) async throws {
         let t = tools
         var cd2Changed = false
-        guard let qemu = t.qemu, t.ready else { throw FVError("QEMU isn't installed. Run: brew install qemu swtpm") }
+        guard let qemu = t.qemu, t.ready else { throw FVError("VAMP's built-in QEMU is missing. Reinstall VAMP.") }
         let fm = FileManager.default
         if config.os == .windows11 {
             // Networking is built in: virtio-net plus VAMP's driver disc in CD 2 (replacing a missing disc,
@@ -106,7 +106,7 @@ final class VM: Identifiable {
         let log = try FileHandle(forWritingTo: paths.log)
 
         if config.tpm {
-            guard let sw = t.swtpm else { throw FVError("swtpm isn't installed (brew install swtpm), or turn off TPM in Hardware.") }
+            guard let sw = t.swtpm else { throw FVError("VAMP's built-in TPM emulator is missing. Reinstall VAMP, or turn off TPM in Hardware.") }
             try fm.createDirectory(at: paths.tpmDir, withIntermediateDirectories: true)
             let p = Process()
             p.executableURL = URL(fileURLWithPath: sw)
