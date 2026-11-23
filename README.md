@@ -1,6 +1,6 @@
 # VAMP
 
-**Virtualization Architecture for Mac Platform**: a VMware-style virtual machine manager for Apple Silicon Macs, built on QEMU with Apple's Hypervisor.framework. It's made first for Windows 11 ARM, and Linux ARM64 works too.
+**Virtualization Architecture for Mac Platform**: a virtual machine manager for Apple Silicon Macs, built on QEMU with Apple's Hypervisor.framework. It's made first for Windows 11 ARM, and Linux ARM64 works too.
 
 ## Features
 
